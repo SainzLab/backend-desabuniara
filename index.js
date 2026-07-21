@@ -429,6 +429,84 @@ app.get('/api/public/wisata', async (req, res) => {
   }
 });
 
+// ==========================================
+// API MANAJEMEN UMKM (KHUSUS ADMIN)
+// ==========================================
+
+// GET Semua UMKM
+app.get('/api/umkm', verifyToken, async (req, res) => {
+    try {
+        // HAPUS kurung siku di sekitar rows
+        const rows = await pool.query('SELECT * FROM umkm ORDER BY id DESC');
+        res.json({ success: true, data: rows });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// POST Tambah UMKM
+app.post('/api/umkm', verifyToken, async (req, res) => {
+    const { judul, pemilik, kategori, deskripsi, image, is_published } = req.body;
+    try {
+        // HAPUS kurung siku di sekitar result
+        const result = await pool.query(
+            'INSERT INTO umkm (judul, pemilik, kategori, deskripsi, image, is_published) VALUES (?, ?, ?, ?, ?, ?)',
+            [judul, pemilik, kategori, deskripsi, image, is_published ? 1 : 0]
+        );
+        
+        // Membungkus result.insertId dengan Number() untuk menghindari error BigInt seperti di tabel wisata
+        res.json({ success: true, message: 'UMKM berhasil ditambahkan', id: Number(result.insertId) });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// PUT Edit UMKM
+app.put('/api/umkm/:id', verifyToken, async (req, res) => {
+    const { id } = req.params;
+    const { judul, pemilik, kategori, deskripsi, image } = req.body;
+    try {
+        let query = 'UPDATE umkm SET judul=?, pemilik=?, kategori=?, deskripsi=?';
+        let params = [judul, pemilik, kategori, deskripsi];
+
+        if (image) {
+            query += ', image=?';
+            params.push(image);
+        }
+        
+        query += ' WHERE id=?';
+        params.push(id);
+
+        await pool.query(query, params);
+        res.json({ success: true, message: 'UMKM berhasil diupdate' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// PATCH Update Status Publish UMKM
+app.patch('/api/umkm/:id/status', verifyToken, async (req, res) => {
+    const { id } = req.params;
+    const { is_published } = req.body;
+    try {
+        await pool.query('UPDATE umkm SET is_published=? WHERE id=?', [is_published ? 1 : 0, id]);
+        res.json({ success: true, message: 'Status publish diupdate' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// DELETE UMKM
+app.delete('/api/umkm/:id', verifyToken, async (req, res) => {
+    const { id } = req.params;
+    try {
+        await pool.query('DELETE FROM umkm WHERE id=?', [id]);
+        res.json({ success: true, message: 'UMKM berhasil dihapus' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
 app.listen(PORT, () => {
   console.log(`Server backend berjalan di http://localhost:${PORT}`);
 });
