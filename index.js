@@ -8,12 +8,6 @@ const jwt = require('jsonwebtoken');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ==========================================
-// MIDDLEWARE
-// ==========================================
-app.use(cors());
-app.use(express.json());
-
 const pool = mariadb.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -22,65 +16,48 @@ const pool = mariadb.createPool({
   connectionLimit: 5
 });
 
-// Endpoint untuk root URL
+// ==========================================
+// GLOBAL MIDDLEWARE
+// ==========================================
+app.use(cors());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+const verifyToken = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, message: "Akses Ditolak: Token tidak ditemukan" });
+  }
+
+  const token = authHeader.split(' ')[1];
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    return res.status(403).json({ success: false, message: "Akses Ditolak: Token tidak valid atau kadaluarsa" });
+  }
+};
+
+
+// ==========================================
+// 1. PUBLIC ROUTES (Tanpa Token)
+// ==========================================
+
+// A. Root URL
 app.get('/', (req, res) => {
   res.send('Halo! Ini adalah Backend API untuk Desa Buniara.');
 });
 
-// ==========================================
-// ROUTES (API ENDPOINTS)
-// ==========================================
-
-// 1. MENGAMBIL data konten web
-app.get('/api/konten', async (req, res) => {
-  let conn;
-  try {
-    conn = await pool.getConnection();
-    const rows = await conn.query("SELECT * FROM konten_web WHERE id = 1");
-    
-    if (rows.length > 0) {
-      res.status(200).json({ success: true, data: rows[0] });
-    } else {
-      res.status(404).json({ success: false, message: "Data tidak ditemukan" });
-    }
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: "Gagal mengambil data" });
-  } finally {
-    if (conn) conn.release();
-  }
-});
-
-// 2. MENGUBAH data konten web
-app.put('/api/konten', async (req, res) => {
-  let conn;
-  try {
-    const { hero_headline, hero_subheadline, tentang_judul, tentang_desc1, tentang_desc2, dusun } = req.body;
-    conn = await pool.getConnection();
-    
-    await conn.query(
-      `UPDATE konten_web SET 
-        hero_headline = ?, hero_subheadline = ?, tentang_judul = ?, tentang_desc1 = ?, tentang_desc2 = ?, dusun = ? 
-      WHERE id = 1`,
-      [hero_headline, hero_subheadline, tentang_judul, tentang_desc1, tentang_desc2, JSON.stringify(dusun)]
-    );
-
-    res.status(200).json({ success: true, message: "Data konten web berhasil diperbarui!" });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: "Gagal menyimpan data" });
-  } finally {
-    if (conn) conn.release();
-  }
-});
-
+// B. Login Admin
 app.post('/api/login', async (req, res) => {
   let conn;
   try {
     conn = await pool.getConnection();
     const { email, password } = req.body;
 
-    // 1. PASTIKAN kolom is_aktif ikut di-select dari database
     const rows = await conn.query(
       "SELECT id, nama, email, role, password, is_aktif FROM pengguna WHERE email = ?",
       [email]
@@ -91,9 +68,8 @@ app.post('/api/login', async (req, res) => {
     }
 
     const user = rows[0];
-
-    // 2. BLOKIR DISINI JIKA AKUN NONAKTIF
     const isAktif = user.is_aktif === 1 || user.is_aktif === true;
+    
     if (!isAktif) {
       return res.status(403).json({ 
         success: false, 
@@ -101,14 +77,12 @@ app.post('/api/login', async (req, res) => {
       });
     }
 
-    // 3. Lanjutkan cek password jika akun aktif
     const isValidPassword = await bcrypt.compare(password, user.password);
     if (!isValidPassword) {
       return res.status(401).json({ success: false, message: "Email atau kata sandi salah" });
     }
 
     delete user.password;
-
     const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1d' });
 
     res.json({ success: true, token, user });
@@ -120,12 +94,104 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
+// C. MENGAMBIL DATA KONTEN WEB (Bisa diakses publik untuk frontend web desa)
+app.get('/api/konten', async (req, res) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const rows = await conn.query("SELECT * FROM konten_web WHERE id = 1");
+    
+    if (rows.length > 0) {
+      const data = rows[0];
+      
+      // Fungsi aman untuk parsing JSON dari database
+      const parseJSON = (str, fallback) => {
+        if (!str) return fallback; 
+        try {
+          const parsed = typeof str === 'string' ? JSON.parse(str) : str;
+          return typeof parsed === 'string' ? JSON.parse(parsed) : parsed;
+        } catch (e) {
+          console.error("Gagal parse JSON:", str);
+          return fallback;
+        }
+      };
+
+      data.dusun = parseJSON(data.dusun, []);
+      data.perangkat_desa = parseJSON(data.perangkat_desa, []);
+      
+      // Pastikan nilai NULL dari database diubah menjadi string kosong untuk form
+      Object.keys(data).forEach(key => {
+        if (data[key] === null) {
+          data[key] = '';
+        }
+      });
+
+      res.status(200).json({ success: true, data: data });
+    } else {
+      res.status(404).json({ success: false, message: "Data tidak ditemukan" });
+    }
+  } catch (err) {
+    console.error("Error GET Konten:", err);
+    res.status(500).json({ success: false, message: "Gagal mengambil data konten" });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+
 // ==========================================
-// API MANAJEMEN PENGGUNA
+// 2. PROTECTED ROUTES (Wajib Login / Token)
 // ==========================================
 
-// A. MENGAMBIL semua data pengguna
-app.get('/api/pengguna', async (req, res) => {
+// A. MENGUPDATE DATA KONTEN WEB
+app.put('/api/konten', verifyToken, async (req, res) => {
+  let conn;
+  try {
+    const {
+      hero_headline, hero_subheadline, hero_image,
+      tentang_judul, tentang_desc1, tentang_desc2, tentang_img1, tentang_img2,
+      dusun, maps_embed, kantor_img, alamat, jam_operasional, layanan, kontak, perangkat_desa
+    } = req.body;
+
+    const dusunJSON = JSON.stringify(Array.isArray(dusun) ? dusun : []);
+    const perangkatDesaJSON = JSON.stringify(Array.isArray(perangkat_desa) ? perangkat_desa : []);
+
+    conn = await pool.getConnection();
+    
+    const query = `
+      UPDATE konten_web 
+      SET 
+        hero_headline = ?, hero_subheadline = ?, hero_image = ?,
+        tentang_judul = ?, tentang_desc1 = ?, tentang_desc2 = ?, tentang_img1 = ?, tentang_img2 = ?,
+        dusun = ?, maps_embed = ?, kantor_img = ?, alamat = ?, 
+        jam_operasional = ?, layanan = ?, kontak = ?, perangkat_desa = ?
+      WHERE id = 1
+    `;
+
+    const values = [
+      hero_headline || '', hero_subheadline || '', hero_image || '',
+      tentang_judul || '', tentang_desc1 || '', tentang_desc2 || '', tentang_img1 || '', tentang_img2 || '',
+      dusunJSON, maps_embed || '', kantor_img || '', alamat || '', 
+      jam_operasional || '', layanan || '', kontak || '', perangkatDesaJSON
+    ];
+
+    const result = await conn.query(query, values);
+
+    if (result.affectedRows > 0) {
+      res.status(200).json({ success: true, message: "Data konten web berhasil diperbarui!" });
+    } else {
+      res.status(400).json({ success: false, message: "Gagal memperbarui data" });
+    }
+  } catch (err) {
+    console.error("Error PUT Konten:", err);
+    res.status(500).json({ success: false, message: "Terjadi kesalahan pada server saat menyimpan" });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+// B. Manajemen Pengguna: Ambil Semua Data
+app.get('/api/pengguna', verifyToken, async (req, res) => {
   let conn;
   try {
     conn = await pool.getConnection();
@@ -139,8 +205,8 @@ app.get('/api/pengguna', async (req, res) => {
   }
 });
 
-// B. MENAMBAH pengguna baru
-app.post('/api/pengguna', async (req, res) => {
+// C. Manajemen Pengguna: Tambah Baru
+app.post('/api/pengguna', verifyToken, async (req, res) => {
   let conn;
   try {
     const { nama, email, password, role } = req.body;
@@ -163,45 +229,8 @@ app.post('/api/pengguna', async (req, res) => {
   }
 });
 
-// C. MENGUBAH status aktif pengguna (Toggle)
-app.put('/api/pengguna/:id/status', async (req, res) => {
-  let conn;
-  try {
-    const { id } = req.params;
-    const { is_aktif } = req.body;
-    
-    conn = await pool.getConnection();
-    await conn.query("UPDATE pengguna SET is_aktif = ? WHERE id = ?", [is_aktif, id]);
-    
-    res.status(200).json({ success: true, message: "Status pengguna berhasil diperbarui" });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: "Gagal memperbarui status" });
-  } finally {
-    if (conn) conn.release();
-  }
-});
-
-// D. MENGHAPUS pengguna
-app.delete('/api/pengguna/:id', async (req, res) => {
-  let conn;
-  try {
-    const { id } = req.params;
-    
-    conn = await pool.getConnection();
-    await conn.query("DELETE FROM pengguna WHERE id = ?", [id]);
-    
-    res.status(200).json({ success: true, message: "Pengguna berhasil dihapus" });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: "Gagal menghapus pengguna" });
-  } finally {
-    if (conn) conn.release();
-  }
-});
-
-// E. MENGEDIT data pengguna (Nama, Email, Role, Password opsional)
-app.put('/api/pengguna/:id', async (req, res) => {
+// D. Manajemen Pengguna: Edit Data
+app.put('/api/pengguna/:id', verifyToken, async (req, res) => {
   let conn;
   try {
     const { id } = req.params;
@@ -228,6 +257,43 @@ app.put('/api/pengguna/:id', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: "Gagal memperbarui pengguna" });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+// E. Manajemen Pengguna: Ubah Status Aktif (Toggle)
+app.put('/api/pengguna/:id/status', verifyToken, async (req, res) => {
+  let conn;
+  try {
+    const { id } = req.params;
+    const { is_aktif } = req.body;
+    
+    conn = await pool.getConnection();
+    await conn.query("UPDATE pengguna SET is_aktif = ? WHERE id = ?", [is_aktif, id]);
+    
+    res.status(200).json({ success: true, message: "Status pengguna berhasil diperbarui" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: "Gagal memperbarui status" });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+// F. Manajemen Pengguna: Hapus
+app.delete('/api/pengguna/:id', verifyToken, async (req, res) => {
+  let conn;
+  try {
+    const { id } = req.params;
+    
+    conn = await pool.getConnection();
+    await conn.query("DELETE FROM pengguna WHERE id = ?", [id]);
+    
+    res.status(200).json({ success: true, message: "Pengguna berhasil dihapus" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: "Gagal menghapus pengguna" });
   } finally {
     if (conn) conn.release();
   }
