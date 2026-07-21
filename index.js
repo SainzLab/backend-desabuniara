@@ -299,6 +299,136 @@ app.delete('/api/pengguna/:id', verifyToken, async (req, res) => {
   }
 });
 
+// ==========================================
+// API UNTUK MANAJEMEN WISATA
+// ==========================================
+
+// 1. GET: Ambil semua data wisata
+app.get('/api/wisata', verifyToken, async (req, res) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const rows = await conn.query("SELECT * FROM wisata ORDER BY id DESC");
+    res.status(200).json({ success: true, data: rows });
+  } catch (err) {
+    console.error('Error mengambil data wisata:', err);
+    res.status(500).json({ success: false, message: 'Gagal mengambil data wisata' });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+// 2. POST: Tambah data wisata baru
+app.post('/api/wisata', verifyToken, async (req, res) => {
+  let conn;
+  try {
+    const { judul, kategori, deskripsi, image, isPublished } = req.body;
+    const is_published = isPublished ? 1 : 0; // Konversi boolean Vue ke TINYINT
+
+    conn = await pool.getConnection();
+    const result = await conn.query(
+      "INSERT INTO wisata (judul, kategori, deskripsi, image, is_published) VALUES (?, ?, ?, ?, ?)",
+      [judul, kategori, deskripsi, image, is_published]
+    );
+
+    const safeInsertId = result.insertId ? Number(result.insertId) : null;
+
+    res.status(201).json({ 
+      success: true, 
+      message: 'Data wisata berhasil ditambahkan', 
+      id: safeInsertId 
+    });
+  } catch (err) {
+    console.error('Error menambah wisata:', err);
+    res.status(500).json({ success: false, message: 'Gagal menyimpan data wisata' });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+// 3. PUT: Edit data wisata
+app.put('/api/wisata/:id', verifyToken, async (req, res) => {
+  let conn;
+  try {
+    const { id } = req.params;
+    const { judul, kategori, deskripsi, image } = req.body;
+
+    conn = await pool.getConnection();
+
+    // Cek apakah gambar ikut diupdate
+    if (image && image.trim() !== '') {
+      await conn.query(
+        "UPDATE wisata SET judul = ?, kategori = ?, deskripsi = ?, image = ? WHERE id = ?",
+        [judul, kategori, deskripsi, image, id]
+      );
+    } else {
+      await conn.query(
+        "UPDATE wisata SET judul = ?, kategori = ?, deskripsi = ? WHERE id = ?",
+        [judul, kategori, deskripsi, id]
+      );
+    }
+
+    res.status(200).json({ success: true, message: 'Data wisata berhasil diupdate' });
+  } catch (err) {
+    console.error('Error update wisata:', err);
+    res.status(500).json({ success: false, message: 'Gagal mengupdate data wisata' });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+// 4. PUT: Ubah Status Publikasi (Publish/Draft)
+app.put('/api/wisata/:id/status', verifyToken, async (req, res) => {
+  let conn;
+  try {
+    const { id } = req.params;
+    const { is_published } = req.body; 
+
+    conn = await pool.getConnection();
+    await conn.query("UPDATE wisata SET is_published = ? WHERE id = ?", [is_published, id]);
+
+    res.status(200).json({ success: true, message: 'Status wisata berhasil diperbarui' });
+  } catch (err) {
+    console.error('Error update status wisata:', err);
+    res.status(500).json({ success: false, message: 'Gagal merubah status wisata' });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+// 5. DELETE: Hapus data wisata
+app.delete('/api/wisata/:id', verifyToken, async (req, res) => {
+  let conn;
+  try {
+    const { id } = req.params;
+    
+    conn = await pool.getConnection();
+    await conn.query("DELETE FROM wisata WHERE id = ?", [id]);
+
+    res.status(200).json({ success: true, message: 'Data wisata berhasil dihapus' });
+  } catch (err) {
+    console.error('Error menghapus wisata:', err);
+    res.status(500).json({ success: false, message: 'Gagal menghapus data wisata' });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+// 6. GET: Ambil wisata (PUBLIC - Untuk ditampilkan di halaman depan)
+app.get('/api/public/wisata', async (req, res) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const rows = await conn.query("SELECT * FROM wisata WHERE is_published = 1 ORDER BY id DESC");
+    res.status(200).json({ success: true, data: rows });
+  } catch (err) {
+    console.error('Error mengambil data wisata publik:', err);
+    res.status(500).json({ success: false, message: 'Gagal mengambil data' });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server backend berjalan di http://localhost:${PORT}`);
 });
