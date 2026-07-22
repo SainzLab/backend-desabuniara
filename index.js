@@ -507,6 +507,162 @@ app.delete('/api/umkm/:id', verifyToken, async (req, res) => {
     }
 });
 
+// ==========================================
+// API UMKM (PUBLIK - PENGUNJUNG DESA)
+// ==========================================
+
+// GET Semua UMKM Publik (Hanya yang is_published = 1, Tanpa Token)
+app.get('/api/public/umkm', async (req, res) => {
+    try {
+        const rows = await pool.query('SELECT * FROM umkm WHERE is_published = 1 ORDER BY id DESC');
+        res.json({ success: true, data: rows });
+    } catch (error) {
+        console.error('Error fetch public UMKM:', error);
+        res.status(500).json({ success: false, message: 'Terjadi kesalahan pada server' });
+    }
+});
+
+// GET Detail UMKM Publik berdasarkan ID (Untuk halaman detail UMKM)
+app.get('/api/public/umkm/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const rows = await pool.query('SELECT * FROM umkm WHERE id = ? AND is_published = 1', [id]);
+        
+        if (rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Data UMKM tidak ditemukan atau belum dipublikasikan' });
+        }
+        
+        res.json({ success: true, data: rows[0] });
+    } catch (error) {
+        console.error('Error fetch detail public UMKM:', error);
+        res.status(500).json({ success: false, message: 'Terjadi kesalahan pada server' });
+    }
+});
+
+// ==========================================
+// API LAPORAN MASYARAKAT (PUBLIK)
+// ==========================================
+
+// POST Kirim Laporan Baru (Publik - Tanpa Token)
+app.post('/api/public/laporan', async (req, res) => {
+    const { nama_lengkap, kontak, kategori, subjek, pesan, lampiran } = req.body;
+    
+    if (!nama_lengkap || !kontak || !kategori || !subjek || !pesan) {
+        return res.status(400).json({ success: false, message: 'Semua kolom wajib diisi kecuali lampiran' });
+    }
+
+    try {
+        // 1. Simpan laporan ke database
+        const result = await pool.query(
+            'INSERT INTO laporan (nama_lengkap, kontak, kategori, subjek, pesan, lampiran) VALUES (?, ?, ?, ?, ?, ?)',
+            [nama_lengkap, kontak, kategori, subjek, pesan, lampiran || null]
+        );
+        
+        // 2. Ambil nomor WA dari tabel pengaturan
+        const waConfig = await pool.query(
+            "SELECT nilai FROM pengaturan WHERE kunci = 'wa_admin_laporan'"
+        );
+        
+        // Pastikan format array/object sesuai dengan library mariadb Anda
+        // Jika mariadb mengembalikan array of objects, akses elemen pertama
+        const nomorWa = waConfig.length > 0 ? waConfig[0].nilai : '';
+
+        // 3. Kirim respon sukses beserta nomor WA
+        res.json({ 
+            success: true, 
+            message: 'Laporan berhasil dikirim. Anda akan dialihkan ke WhatsApp.', 
+            id: Number(result.insertId),
+            wa_number: nomorWa // Kirim nomor ke frontend
+        });
+    } catch (error) {
+        console.error('Error saat submit laporan:', error);
+        res.status(500).json({ success: false, message: 'Terjadi kesalahan pada server' });
+    }
+});
+
+
+// ==========================================
+// API MANAJEMEN LAPORAN (KHUSUS ADMIN)
+// ==========================================
+
+// GET Semua Laporan (Admin - Butuh Token)
+app.get('/api/laporan', verifyToken, async (req, res) => {
+    try {
+        const rows = await pool.query('SELECT * FROM laporan ORDER BY created_at DESC');
+        res.json({ success: true, data: rows });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// PATCH Update Status Laporan (Admin - Butuh Token)
+app.patch('/api/laporan/:id/status', verifyToken, async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body; 
+    
+    // 1. Validasi Input Status
+    const allowedStatuses = ['Menunggu', 'Diproses', 'Selesai', 'Ditolak'];
+    if (!allowedStatuses.includes(status)) {
+        return res.status(400).json({ 
+            success: false, 
+            message: 'Status tidak valid. Pilihan yang diizinkan: Menunggu, Diproses, Selesai, Ditolak' 
+        });
+    }
+    
+    try {
+        const result = await pool.query('UPDATE laporan SET status = ? WHERE id = ?', [status, id]);
+        
+        // 2. Opsional: Cek apakah ID laporan benar-benar ada
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ success: false, message: 'Data laporan tidak ditemukan' });
+        }
+
+        res.json({ success: true, message: 'Status laporan berhasil diperbarui' });
+    } catch (error) {
+        console.error('Error update status:', error);
+        res.status(500).json({ success: false, message: 'Gagal memperbarui status laporan' });
+    }
+});
+
+// DELETE Laporan (Admin - Butuh Token)
+app.delete('/api/laporan/:id', verifyToken, async (req, res) => {
+    const { id } = req.params;
+    try {
+        await pool.query('DELETE FROM laporan WHERE id = ?', [id]);
+        res.json({ success: true, message: 'Laporan berhasil dihapus' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// GET Nomor WA (Admin)
+app.get('/api/pengaturan/wa', verifyToken, async (req, res) => {
+    try {
+        const rows = await pool.query("SELECT nilai FROM pengaturan WHERE kunci = 'wa_admin_laporan'");
+        const nomorWa = rows.length > 0 ? rows[0].nilai : '';
+        res.json({ success: true, data: nomorWa });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// PUT Update Nomor WA (Admin)
+app.put('/api/pengaturan/wa', verifyToken, async (req, res) => {
+    const { nomor } = req.body;
+    try {
+        // Cek apakah data sudah ada
+        const rows = await pool.query("SELECT id FROM pengaturan WHERE kunci = 'wa_admin_laporan'");
+        if (rows.length > 0) {
+            await pool.query("UPDATE pengaturan SET nilai = ? WHERE kunci = 'wa_admin_laporan'", [nomor]);
+        } else {
+            await pool.query("INSERT INTO pengaturan (kunci, nilai, deskripsi) VALUES ('wa_admin_laporan', ?, 'Nomor WhatsApp Admin')", [nomor]);
+        }
+        res.json({ success: true, message: 'Nomor WhatsApp berhasil diperbarui' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
 app.listen(PORT, () => {
   console.log(`Server backend berjalan di http://localhost:${PORT}`);
 });
