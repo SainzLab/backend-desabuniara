@@ -1,3 +1,4 @@
+// Terimakasih GEMINI
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -377,18 +378,46 @@ app.get('/api/public/umkm/:id', async (req, res) => {
 
 
 // ==========================================
-// API LAPORAN MASYARAKAT (TETAP SAMA)
+// API LAPORAN MASYARAKAT
 // ==========================================
-// ... (Kode API Laporan dan Pengaturan WA tidak saya rubah agar Anda tidak repot) ...
-app.post('/api/public/laporan', async (req, res) => {
-  const { nama_lengkap, kontak, kategori, subjek, pesan, lampiran } = req.body;
-  if (!nama_lengkap || !kontak || !kategori || !subjek || !pesan) return res.status(400).json({ success: false, message: 'Semua kolom wajib diisi kecuali lampiran' });
+app.post('/api/public/laporan', upload.single('lampiran'), async (req, res) => {
+  let conn;
   try {
-      const result = await pool.query('INSERT INTO laporan (nama_lengkap, kontak, kategori, subjek, pesan, lampiran) VALUES (?, ?, ?, ?, ?, ?)', [nama_lengkap, kontak, kategori, subjek, pesan, lampiran || null]);
-      const waConfig = await pool.query("SELECT nilai FROM pengaturan WHERE kunci = 'wa_admin_laporan'");
-      const nomorWa = waConfig.length > 0 ? waConfig[0].nilai : '';
-      res.json({ success: true, message: 'Laporan berhasil dikirim.', id: Number(result.insertId), wa_number: nomorWa });
-  } catch (error) { res.status(500).json({ success: false, message: 'Terjadi kesalahan pada server' }); }
+    const { nama_lengkap, kontak, kategori, subjek, pesan } = req.body;
+    
+    // Validasi data wajib
+    if (!nama_lengkap || !kontak || !kategori || !subjek || !pesan) {
+      return res.status(400).json({ success: false, message: 'Semua kolom wajib diisi kecuali lampiran' });
+    }
+
+    // Ambil path file jika masyarakat melampirkan foto
+    const lampiranPath = req.file ? '/uploads/' + req.file.filename : null;
+
+    conn = await pool.getConnection();
+    
+    // Simpan laporan ke database
+    const result = await conn.query(
+      'INSERT INTO laporan (nama_lengkap, kontak, kategori, subjek, pesan, lampiran) VALUES (?, ?, ?, ?, ?, ?)', 
+      [nama_lengkap, kontak, kategori, subjek, pesan, lampiranPath]
+    );
+    
+    // Ambil konfigurasi nomor WA admin
+    const waConfig = await conn.query("SELECT nilai FROM pengaturan WHERE kunci = 'wa_admin_laporan'");
+    const nomorWa = waConfig.length > 0 ? waConfig[0].nilai : '';
+    
+    res.json({ 
+      success: true, 
+      message: 'Laporan berhasil dikirim.', 
+      id: Number(result.insertId), 
+      wa_number: nomorWa 
+    });
+
+  } catch (error) { 
+    console.error('Error saat mengirim laporan:', error);
+    res.status(500).json({ success: false, message: 'Terjadi kesalahan pada server' }); 
+  } finally { 
+    if (conn) conn.release(); 
+  }
 });
 
 app.get('/api/laporan', verifyToken, async (req, res) => { try { const rows = await pool.query('SELECT * FROM laporan ORDER BY created_at DESC'); res.json({ success: true, data: rows }); } catch (error) { res.status(500).json({ success: false, message: error.message }); } });
