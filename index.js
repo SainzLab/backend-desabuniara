@@ -5,9 +5,9 @@ const cors = require('cors');
 const mariadb = require('mariadb');
 const bcrypt = require('bcryptjs'); 
 const jwt = require('jsonwebtoken');
-const multer = require('multer'); // Tambahan: Multer untuk upload file
-const path = require('path');     // Tambahan: Path untuk mengatur nama file
-const fs = require('fs');         // Tambahan: File System
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -376,6 +376,45 @@ app.get('/api/public/umkm/:id', async (req, res) => {
     try { const { id } = req.params; const rows = await pool.query('SELECT * FROM umkm WHERE id = ? AND is_published = 1', [id]); if (rows.length === 0) return res.status(404).json({ success: false, message: 'Data tidak ditemukan' }); res.json({ success: true, data: rows[0] }); } catch (error) { res.status(500).json({ success: false, message: 'Terjadi kesalahan' }); }
 });
 
+// ==========================================
+// API STATISTIK LAPORAN (Untuk Publik Frontend)
+// ==========================================
+app.get('/api/public/laporan/stats', async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        SUM(CASE WHEN status = 'Selesai' THEN 1 ELSE 0 END) AS total_selesai,
+        SUM(CASE WHEN status = 'Diproses' THEN 1 ELSE 0 END) AS total_diproses,
+        SUM(CASE WHEN status = 'Menunggu' THEN 1 ELSE 0 END) AS total_menunggu,
+        COUNT(*) AS total_laporan
+      FROM laporan
+    `;
+    
+    const rows = await pool.query(query);
+    
+    // Fallback ke 0 jika database kosong
+    const stats = rows[0] || { 
+      total_selesai: 0, 
+      total_diproses: 0, 
+      total_menunggu: 0, 
+      total_laporan: 0 
+    };
+    
+    res.json({
+      success: true,
+      data: {
+        selesai: Number(stats.total_selesai || 0),
+        diproses: Number(stats.total_diproses || 0),
+        menunggu: Number(stats.total_menunggu || 0),
+        total: Number(stats.total_laporan || 0)
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error saat mengambil statistik laporan:', error);
+    res.status(500).json({ success: false, message: 'Gagal mengambil statistik laporan' });
+  }
+});
 
 // ==========================================
 // API LAPORAN MASYARAKAT
