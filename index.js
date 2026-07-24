@@ -532,6 +532,12 @@ app.delete('/api/laporan/:id', verifyToken, async (req, res) => { try { const { 
 app.get('/api/pengaturan/wa', verifyToken, async (req, res) => { try { const rows = await pool.query("SELECT nilai FROM pengaturan WHERE kunci = 'wa_admin_laporan'"); res.json({ success: true, data: rows.length > 0 ? rows[0].nilai : '' }); } catch (error) { res.status(500).json({ success: false, message: error.message }); } });
 app.put('/api/pengaturan/wa', verifyToken, async (req, res) => { const { nomor } = req.body; try { const rows = await pool.query("SELECT id FROM pengaturan WHERE kunci = 'wa_admin_laporan'"); if (rows.length > 0) { await pool.query("UPDATE pengaturan SET nilai = ? WHERE kunci = 'wa_admin_laporan'", [nomor]); } else { await pool.query("INSERT INTO pengaturan (kunci, nilai, deskripsi) VALUES ('wa_admin_laporan', ?, 'Nomor WhatsApp Admin')", [nomor]); } res.json({ success: true, message: 'Nomor WhatsApp berhasil diperbarui' }); } catch (error) { res.status(500).json({ success: false, message: error.message }); } });
 
-app.listen(PORT, () => {
-  console.log(`Server backend berjalan di http://localhost:${PORT}`);
+// app.listen(PORT, () => {
+//   console.log(`Server backend berjalan di http://localhost:${PORT}`);
+// });
+
+const HOST = process.env.HOST || '0.0.0.0'; 
+
+app.listen(PORT, HOST, () => {
+  console.log(`Server backend siap menerima koneksi pada host ${HOST} di port ${PORT}`);
 });
