@@ -169,12 +169,10 @@ app.get('/api/konten', async (req, res) => {
   }
 });
 
-
 // ==========================================
 // 2. PROTECTED ROUTES (Wajib Login / Token)
 // ==========================================
 
-// A. MENGUPDATE DATA KONTEN WEB (Mendukung upload banyak file sekaligus)
 const uploadFields = upload.fields([
   { name: 'hero_image', maxCount: 1 },
   { name: 'tentang_img1', maxCount: 1 },
@@ -182,17 +180,16 @@ const uploadFields = upload.fields([
   { name: 'kantor_img', maxCount: 1 }
 ]);
 
+// MENGUPDATE DATA KONTEN WEB (Sudah termasuk Email & Logging)
 app.put('/api/konten', verifyToken, uploadFields, async (req, res) => {
   let conn;
   try {
-    // Ambil data teks biasa dari req.body
     const {
       hero_headline, hero_subheadline, tentang_judul, tentang_desc1, 
       tentang_desc2, dusun, maps_embed, alamat, jam_operasional, 
-      layanan, kontak, perangkat_desa
+      layanan, kontak, email, perangkat_desa 
     } = req.body;
 
-    // Cek apakah ada file baru yang diunggah. Jika ada, ambil path-nya. Jika tidak, pakai URL gambar yang lama dari req.body.
     const hero_image = req.files && req.files['hero_image'] ? '/uploads/' + req.files['hero_image'][0].filename : req.body.hero_image;
     const tentang_img1 = req.files && req.files['tentang_img1'] ? '/uploads/' + req.files['tentang_img1'][0].filename : req.body.tentang_img1;
     const tentang_img2 = req.files && req.files['tentang_img2'] ? '/uploads/' + req.files['tentang_img2'][0].filename : req.body.tentang_img2;
@@ -209,7 +206,7 @@ app.put('/api/konten', verifyToken, uploadFields, async (req, res) => {
         hero_headline = ?, hero_subheadline = ?, hero_image = ?,
         tentang_judul = ?, tentang_desc1 = ?, tentang_desc2 = ?, tentang_img1 = ?, tentang_img2 = ?,
         dusun = ?, maps_embed = ?, kantor_img = ?, alamat = ?, 
-        jam_operasional = ?, layanan = ?, kontak = ?, perangkat_desa = ?
+        jam_operasional = ?, layanan = ?, kontak = ?, email = ?, perangkat_desa = ?
       WHERE id = 1
     `;
 
@@ -217,7 +214,7 @@ app.put('/api/konten', verifyToken, uploadFields, async (req, res) => {
       hero_headline || '', hero_subheadline || '', hero_image || '',
       tentang_judul || '', tentang_desc1 || '', tentang_desc2 || '', tentang_img1 || '', tentang_img2 || '',
       dusunJSON, maps_embed || '', kantor_img || '', alamat || '', 
-      jam_operasional || '', layanan || '', kontak || '', perangkatDesaJSON
+      jam_operasional || '', layanan || '', kontak || '', email || '', perangkatDesaJSON
     ];
 
     const result = await conn.query(query, values);
@@ -235,6 +232,76 @@ app.put('/api/konten', verifyToken, uploadFields, async (req, res) => {
   }
 });
 
+// ==========================================
+// 3. ROUTE SOSIAL MEDIA (GET, POST, DELETE)
+// ==========================================
+
+// GET: Ambil semua data sosial media (Bisa diakses publik untuk web desa)
+app.get('/api/sosmed', async (req, res) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const rows = await conn.query("SELECT * FROM sosial_media ORDER BY id DESC");
+    res.status(200).json({ success: true, data: rows });
+  } catch (err) {
+    console.error("Error GET Sosmed:", err);
+    res.status(500).json({ success: false, message: "Gagal mengambil data sosial media" });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+// POST: Tambah link sosial media baru (Wajib Login Admin)
+app.post('/api/sosmed', verifyToken, async (req, res) => {
+  let conn;
+  try {
+    const { platform, url } = req.body;
+    
+    if (!platform || !url) {
+      return res.status(400).json({ success: false, message: "Platform dan URL wajib diisi" });
+    }
+
+    conn = await pool.getConnection();
+    const result = await conn.query(
+      "INSERT INTO sosial_media (platform, url) VALUES (?, ?)",
+      [platform, url]
+    );
+
+    res.status(201).json({ 
+      success: true, 
+      message: "Sosial media berhasil ditambahkan", 
+      // PERBAIKAN: Bungkus result.insertId dengan Number() atau toString()
+      data: { id: Number(result.insertId), platform, url } 
+    });
+  } catch (err) {
+    console.error("Error POST Sosmed:", err);
+    res.status(500).json({ success: false, message: "Gagal menyimpan sosial media" });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+// DELETE: Hapus link sosial media berdasarkan ID (Wajib Login Admin)
+app.delete('/api/sosmed/:id', verifyToken, async (req, res) => {
+  let conn;
+  try {
+    const { id } = req.params;
+    conn = await pool.getConnection();
+    
+    const result = await conn.query("DELETE FROM sosial_media WHERE id = ?", [id]);
+    
+    if (result.affectedRows > 0) {
+      res.status(200).json({ success: true, message: "Sosial media berhasil dihapus" });
+    } else {
+      res.status(404).json({ success: false, message: "Data sosial media tidak ditemukan" });
+    }
+  } catch (err) {
+    console.error("Error DELETE Sosmed:", err);
+    res.status(500).json({ success: false, message: "Gagal menghapus sosial media" });
+  } finally {
+    if (conn) conn.release();
+  }
+});
 
 // B - F. MANAJEMEN PENGGUNA (Tetap Sama)
 // ... (Kode untuk /api/pengguna GET, POST, PUT, DELETE sama seperti sebelumnya) ...
