@@ -390,6 +390,29 @@ app.get('/api/public/wisata', async (req, res) => {
   let conn; try { conn = await pool.getConnection(); const rows = await conn.query("SELECT * FROM wisata WHERE is_published = 1 ORDER BY id DESC"); res.status(200).json({ success: true, data: rows }); } catch (err) { res.status(500).json({ success: false, message: 'Gagal mengambil data' }); } finally { if (conn) conn.release(); }
 });
 
+// Endpoint untuk mengambil detail wisata berdasarkan ID
+app.get('/api/wisata/:id', async (req, res) => {
+  let conn;
+  try {
+    const { id } = req.params;
+    conn = await pool.getConnection(); // Sesuaikan dengan konfigurasi database Anda
+    
+    // Ganti 'wisata' dengan nama tabel yang sesuai di database Anda (misal: umkm, destinasi, dll)
+    const rows = await conn.query("SELECT * FROM wisata WHERE id = ?", [id]);
+    
+    if (rows.length > 0) {
+      res.status(200).json({ success: true, data: rows[0] });
+    } else {
+      res.status(404).json({ success: false, message: "Data tidak ditemukan di database" });
+    }
+  } catch (err) {
+    console.error("Error Detail API:", err);
+    res.status(500).json({ success: false, message: "Terjadi kesalahan server" });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
 // ==========================================
 // API MANAJEMEN UMKM (MENDUKUNG FILE UPLOAD)
 // ==========================================
