@@ -326,24 +326,40 @@ app.delete('/api/pengguna/:id', verifyToken, async (req, res) => {
 // API UNTUK MANAJEMEN WISATA
 // ==========================================
 
+// Konfigurasi Multer khusus untuk Wisata (Mendukung banyak gambar sekaligus)
+const uploadWisata = upload.fields([
+  { name: 'image', maxCount: 1 },
+  { name: 'galeri_1', maxCount: 1 },
+  { name: 'galeri_2', maxCount: 1 },
+  { name: 'galeri_3', maxCount: 1 },
+  { name: 'galeri_4', maxCount: 1 }
+]);
+
 app.get('/api/wisata', verifyToken, async (req, res) => {
   let conn; try { conn = await pool.getConnection(); const rows = await conn.query("SELECT * FROM wisata ORDER BY id DESC"); res.status(200).json({ success: true, data: rows }); } catch (err) { res.status(500).json({ success: false, message: 'Gagal mengambil data wisata' }); } finally { if (conn) conn.release(); }
 });
 
-// POST: Tambah Wisata (Mendukung File Upload)
-app.post('/api/wisata', verifyToken, upload.single('image'), async (req, res) => {
+// POST: Tambah Wisata (Revisi penambahan field 'tentang')
+app.post('/api/wisata', verifyToken, uploadWisata, async (req, res) => {
   let conn;
   try {
-    const { judul, kategori, deskripsi, isPublished } = req.body;
+    // Tambahkan 'tentang' dari req.body
+    const { judul, kategori, deskripsi, tentang, fasilitas, peta_url, isPublished } = req.body;
     const is_published = (isPublished === 'true' || isPublished === true || isPublished == 1) ? 1 : 0; 
     
-    // Ambil path file yang baru diunggah
-    const imagePath = req.file ? '/uploads/' + req.file.filename : '';
+    const imagePath = req.files && req.files['image'] ? '/uploads/' + req.files['image'][0].filename : '';
+    const g1 = req.files && req.files['galeri_1'] ? '/uploads/' + req.files['galeri_1'][0].filename : '';
+    const g2 = req.files && req.files['galeri_2'] ? '/uploads/' + req.files['galeri_2'][0].filename : '';
+    const g3 = req.files && req.files['galeri_3'] ? '/uploads/' + req.files['galeri_3'][0].filename : '';
+    const g4 = req.files && req.files['galeri_4'] ? '/uploads/' + req.files['galeri_4'][0].filename : '';
+
+    const fasilitasJSON = JSON.stringify(Array.isArray(fasilitas) ? fasilitas : (typeof fasilitas === 'string' ? JSON.parse(fasilitas || '[]') : []));
 
     conn = await pool.getConnection();
     const result = await conn.query(
-      "INSERT INTO wisata (judul, kategori, deskripsi, image, is_published) VALUES (?, ?, ?, ?, ?)",
-      [judul, kategori, deskripsi, imagePath, is_published]
+      // Tambahkan 'tentang' ke dalam query INSERT
+      "INSERT INTO wisata (judul, kategori, deskripsi, tentang, fasilitas, peta_url, image, galeri_1, galeri_2, galeri_3, galeri_4, is_published) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [judul, kategori, deskripsi, tentang || '', fasilitasJSON, peta_url || '', imagePath, g1, g2, g3, g4, is_published]
     );
 
     res.status(201).json({ success: true, message: 'Data wisata berhasil ditambahkan', id: Number(result.insertId) });
@@ -355,20 +371,27 @@ app.post('/api/wisata', verifyToken, upload.single('image'), async (req, res) =>
   }
 });
 
-// PUT: Edit Wisata (Mendukung File Upload)
-app.put('/api/wisata/:id', verifyToken, upload.single('image'), async (req, res) => {
+// PUT: Edit Wisata (Revisi penambahan field 'tentang')
+app.put('/api/wisata/:id', verifyToken, uploadWisata, async (req, res) => {
   let conn;
   try {
     const { id } = req.params;
-    const { judul, kategori, deskripsi } = req.body;
+    // Tambahkan 'tentang' dari req.body
+    const { judul, kategori, deskripsi, tentang, fasilitas, peta_url } = req.body;
     
-    // Jika user mengunggah file baru, pakai path baru. Jika tidak, pakai nilai image lama yang dikirim sebagai teks.
-    const imagePath = req.file ? '/uploads/' + req.file.filename : req.body.image;
+    const imagePath = req.files && req.files['image'] ? '/uploads/' + req.files['image'][0].filename : req.body.image;
+    const g1 = req.files && req.files['galeri_1'] ? '/uploads/' + req.files['galeri_1'][0].filename : req.body.galeri_1;
+    const g2 = req.files && req.files['galeri_2'] ? '/uploads/' + req.files['galeri_2'][0].filename : req.body.galeri_2;
+    const g3 = req.files && req.files['galeri_3'] ? '/uploads/' + req.files['galeri_3'][0].filename : req.body.galeri_3;
+    const g4 = req.files && req.files['galeri_4'] ? '/uploads/' + req.files['galeri_4'][0].filename : req.body.galeri_4;
+
+    const fasilitasJSON = JSON.stringify(Array.isArray(fasilitas) ? fasilitas : (typeof fasilitas === 'string' ? JSON.parse(fasilitas || '[]') : []));
 
     conn = await pool.getConnection();
     await conn.query(
-      "UPDATE wisata SET judul = ?, kategori = ?, deskripsi = ?, image = ? WHERE id = ?",
-      [judul, kategori, deskripsi, imagePath, id]
+      // Tambahkan 'tentang = ?' ke dalam query UPDATE
+      "UPDATE wisata SET judul = ?, kategori = ?, deskripsi = ?, tentang = ?, fasilitas = ?, peta_url = ?, image = ?, galeri_1 = ?, galeri_2 = ?, galeri_3 = ?, galeri_4 = ? WHERE id = ?",
+      [judul, kategori, deskripsi, tentang || '', fasilitasJSON, peta_url || '', imagePath, g1, g2, g3, g4, id]
     );
 
     res.status(200).json({ success: true, message: 'Data wisata berhasil diupdate' });
@@ -383,25 +406,39 @@ app.put('/api/wisata/:id', verifyToken, upload.single('image'), async (req, res)
 app.put('/api/wisata/:id/status', verifyToken, async (req, res) => {
   let conn; try { const { id } = req.params; const { is_published } = req.body; conn = await pool.getConnection(); await conn.query("UPDATE wisata SET is_published = ? WHERE id = ?", [is_published, id]); res.status(200).json({ success: true, message: 'Status wisata berhasil diperbarui' }); } catch (err) { res.status(500).json({ success: false, message: 'Gagal merubah status wisata' }); } finally { if (conn) conn.release(); }
 });
+
 app.delete('/api/wisata/:id', verifyToken, async (req, res) => {
   let conn; try { const { id } = req.params; conn = await pool.getConnection(); await conn.query("DELETE FROM wisata WHERE id = ?", [id]); res.status(200).json({ success: true, message: 'Data wisata berhasil dihapus' }); } catch (err) { res.status(500).json({ success: false, message: 'Gagal menghapus data wisata' }); } finally { if (conn) conn.release(); }
 });
+
 app.get('/api/public/wisata', async (req, res) => {
   let conn; try { conn = await pool.getConnection(); const rows = await conn.query("SELECT * FROM wisata WHERE is_published = 1 ORDER BY id DESC"); res.status(200).json({ success: true, data: rows }); } catch (err) { res.status(500).json({ success: false, message: 'Gagal mengambil data' }); } finally { if (conn) conn.release(); }
 });
 
-// Endpoint untuk mengambil detail wisata berdasarkan ID
+// Endpoint GET detail wisata (Dimodifikasi agar me-return fasilitas sebagai Array JSON)
 app.get('/api/wisata/:id', async (req, res) => {
   let conn;
   try {
     const { id } = req.params;
-    conn = await pool.getConnection(); // Sesuaikan dengan konfigurasi database Anda
+    conn = await pool.getConnection(); 
     
-    // Ganti 'wisata' dengan nama tabel yang sesuai di database Anda (misal: umkm, destinasi, dll)
     const rows = await conn.query("SELECT * FROM wisata WHERE id = ?", [id]);
     
     if (rows.length > 0) {
-      res.status(200).json({ success: true, data: rows[0] });
+      const data = rows[0];
+      
+      // Parse fasilitas kembali menjadi JSON Array agar mudah di-looping di Vue (v-for)
+      if (data.fasilitas) {
+        try {
+          data.fasilitas = typeof data.fasilitas === 'string' ? JSON.parse(data.fasilitas) : data.fasilitas;
+        } catch (e) {
+          data.fasilitas = [];
+        }
+      } else {
+        data.fasilitas = [];
+      }
+
+      res.status(200).json({ success: true, data: data });
     } else {
       res.status(404).json({ success: false, message: "Data tidak ditemukan di database" });
     }
