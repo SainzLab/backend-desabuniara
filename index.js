@@ -321,33 +321,45 @@ app.delete('/api/pengguna/:id', verifyToken, async (req, res) => {
   let conn; try { const { id } = req.params; conn = await pool.getConnection(); await conn.query("DELETE FROM pengguna WHERE id = ?", [id]); res.status(200).json({ success: true, message: "Pengguna berhasil dihapus" }); } catch (err) { res.status(500).json({ success: false, message: "Gagal menghapus pengguna" }); } finally { if (conn) conn.release(); }
 });
 
-
 // ==========================================
 // API UNTUK MANAJEMEN WISATA
 // ==========================================
 
-// Konfigurasi Multer khusus untuk Wisata (Mendukung banyak gambar sekaligus)
+// 1. Konfigurasi Multer khusus untuk Wisata
 const uploadWisata = upload.fields([
-  { name: 'image', maxCount: 1 },
-  { name: 'galeri_1', maxCount: 1 },
-  { name: 'galeri_2', maxCount: 1 },
-  { name: 'galeri_3', maxCount: 1 },
-  { name: 'galeri_4', maxCount: 1 }
+  { name: 'image', maxCount: 1 },        // Foto Katalog Depan (Thumbnail)
+  { name: 'gambar_hero', maxCount: 1 },  // Gambar Banner Hero Detail
+  { name: 'galeri_1', maxCount: 1 },     // Galeri 1 (Pakai underscore sesuai DB)
+  { name: 'galeri_2', maxCount: 1 },     // Galeri 2
+  { name: 'galeri_3', maxCount: 1 },     // Galeri 3
+  { name: 'galeri_4', maxCount: 1 }      // Galeri 4
 ]);
 
+// GET: Semua data wisata (Untuk halaman admin)
 app.get('/api/wisata', verifyToken, async (req, res) => {
-  let conn; try { conn = await pool.getConnection(); const rows = await conn.query("SELECT * FROM wisata ORDER BY id DESC"); res.status(200).json({ success: true, data: rows }); } catch (err) { res.status(500).json({ success: false, message: 'Gagal mengambil data wisata' }); } finally { if (conn) conn.release(); }
+  let conn; 
+  try { 
+    conn = await pool.getConnection(); 
+    const rows = await conn.query("SELECT * FROM wisata ORDER BY id DESC"); 
+    res.status(200).json({ success: true, data: rows }); 
+  } catch (err) { 
+    console.error('Error GET wisata admin:', err);
+    res.status(500).json({ success: false, message: 'Gagal mengambil data wisata' }); 
+  } finally { 
+    if (conn) conn.release(); 
+  }
 });
 
-// POST: Tambah Wisata (Revisi penambahan field 'tentang')
+// POST: Tambah Wisata Baru
 app.post('/api/wisata', verifyToken, uploadWisata, async (req, res) => {
   let conn;
   try {
-    // Tambahkan 'tentang' dari req.body
     const { judul, kategori, deskripsi, tentang, fasilitas, peta_url, isPublished } = req.body;
     const is_published = (isPublished === 'true' || isPublished === true || isPublished == 1) ? 1 : 0; 
     
+    // Penanganan path gambar
     const imagePath = req.files && req.files['image'] ? '/uploads/' + req.files['image'][0].filename : '';
+    const gambarHero = req.files && req.files['gambar_hero'] ? '/uploads/' + req.files['gambar_hero'][0].filename : '';
     const g1 = req.files && req.files['galeri_1'] ? '/uploads/' + req.files['galeri_1'][0].filename : '';
     const g2 = req.files && req.files['galeri_2'] ? '/uploads/' + req.files['galeri_2'][0].filename : '';
     const g3 = req.files && req.files['galeri_3'] ? '/uploads/' + req.files['galeri_3'][0].filename : '';
@@ -357,9 +369,22 @@ app.post('/api/wisata', verifyToken, uploadWisata, async (req, res) => {
 
     conn = await pool.getConnection();
     const result = await conn.query(
-      // Tambahkan 'tentang' ke dalam query INSERT
-      "INSERT INTO wisata (judul, kategori, deskripsi, tentang, fasilitas, peta_url, image, galeri_1, galeri_2, galeri_3, galeri_4, is_published) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [judul, kategori, deskripsi, tentang || '', fasilitasJSON, peta_url || '', imagePath, g1, g2, g3, g4, is_published]
+      "INSERT INTO wisata (judul, kategori, deskripsi, tentang, fasilitas, peta_url, image, gambar_hero, galeri_1, galeri_2, galeri_3, galeri_4, is_published) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        judul, 
+        kategori, 
+        deskripsi, 
+        tentang || '', 
+        fasilitasJSON, 
+        peta_url || '', 
+        imagePath, 
+        gambarHero, 
+        g1, 
+        g2, 
+        g3, 
+        g4, 
+        is_published
+      ]
     );
 
     res.status(201).json({ success: true, message: 'Data wisata berhasil ditambahkan', id: Number(result.insertId) });
@@ -371,15 +396,16 @@ app.post('/api/wisata', verifyToken, uploadWisata, async (req, res) => {
   }
 });
 
-// PUT: Edit Wisata (Revisi penambahan field 'tentang')
+// PUT: Edit Wisata
 app.put('/api/wisata/:id', verifyToken, uploadWisata, async (req, res) => {
   let conn;
   try {
     const { id } = req.params;
-    // Tambahkan 'tentang' dari req.body
     const { judul, kategori, deskripsi, tentang, fasilitas, peta_url } = req.body;
     
+    // Pertahankan path lama (dari req.body) jika tidak ada file baru yang diunggah
     const imagePath = req.files && req.files['image'] ? '/uploads/' + req.files['image'][0].filename : req.body.image;
+    const gambarHero = req.files && req.files['gambar_hero'] ? '/uploads/' + req.files['gambar_hero'][0].filename : req.body.gambar_hero;
     const g1 = req.files && req.files['galeri_1'] ? '/uploads/' + req.files['galeri_1'][0].filename : req.body.galeri_1;
     const g2 = req.files && req.files['galeri_2'] ? '/uploads/' + req.files['galeri_2'][0].filename : req.body.galeri_2;
     const g3 = req.files && req.files['galeri_3'] ? '/uploads/' + req.files['galeri_3'][0].filename : req.body.galeri_3;
@@ -389,9 +415,22 @@ app.put('/api/wisata/:id', verifyToken, uploadWisata, async (req, res) => {
 
     conn = await pool.getConnection();
     await conn.query(
-      // Tambahkan 'tentang = ?' ke dalam query UPDATE
-      "UPDATE wisata SET judul = ?, kategori = ?, deskripsi = ?, tentang = ?, fasilitas = ?, peta_url = ?, image = ?, galeri_1 = ?, galeri_2 = ?, galeri_3 = ?, galeri_4 = ? WHERE id = ?",
-      [judul, kategori, deskripsi, tentang || '', fasilitasJSON, peta_url || '', imagePath, g1, g2, g3, g4, id]
+      "UPDATE wisata SET judul = ?, kategori = ?, deskripsi = ?, tentang = ?, fasilitas = ?, peta_url = ?, image = ?, gambar_hero = ?, galeri_1 = ?, galeri_2 = ?, galeri_3 = ?, galeri_4 = ? WHERE id = ?",
+      [
+        judul, 
+        kategori, 
+        deskripsi, 
+        tentang || '', 
+        fasilitasJSON, 
+        peta_url || '', 
+        imagePath, 
+        gambarHero, 
+        g1, 
+        g2, 
+        g3, 
+        g4, 
+        id
+      ]
     );
 
     res.status(200).json({ success: true, message: 'Data wisata berhasil diupdate' });
@@ -403,19 +442,55 @@ app.put('/api/wisata/:id', verifyToken, uploadWisata, async (req, res) => {
   }
 });
 
+// PUT: Toggle Status Publish
 app.put('/api/wisata/:id/status', verifyToken, async (req, res) => {
-  let conn; try { const { id } = req.params; const { is_published } = req.body; conn = await pool.getConnection(); await conn.query("UPDATE wisata SET is_published = ? WHERE id = ?", [is_published, id]); res.status(200).json({ success: true, message: 'Status wisata berhasil diperbarui' }); } catch (err) { res.status(500).json({ success: false, message: 'Gagal merubah status wisata' }); } finally { if (conn) conn.release(); }
+  let conn; 
+  try { 
+    const { id } = req.params; 
+    const { is_published } = req.body; 
+    conn = await pool.getConnection(); 
+    await conn.query("UPDATE wisata SET is_published = ? WHERE id = ?", [is_published, id]); 
+    res.status(200).json({ success: true, message: 'Status wisata berhasil diperbarui' }); 
+  } catch (err) { 
+    console.error('Error update status wisata:', err);
+    res.status(500).json({ success: false, message: 'Gagal merubah status wisata' }); 
+  } finally { 
+    if (conn) conn.release(); 
+  }
 });
 
+// DELETE: Hapus Wisata
 app.delete('/api/wisata/:id', verifyToken, async (req, res) => {
-  let conn; try { const { id } = req.params; conn = await pool.getConnection(); await conn.query("DELETE FROM wisata WHERE id = ?", [id]); res.status(200).json({ success: true, message: 'Data wisata berhasil dihapus' }); } catch (err) { res.status(500).json({ success: false, message: 'Gagal menghapus data wisata' }); } finally { if (conn) conn.release(); }
+  let conn; 
+  try { 
+    const { id } = req.params; 
+    conn = await pool.getConnection(); 
+    await conn.query("DELETE FROM wisata WHERE id = ?", [id]); 
+    res.status(200).json({ success: true, message: 'Data wisata berhasil dihapus' }); 
+  } catch (err) { 
+    console.error('Error delete wisata:', err);
+    res.status(500).json({ success: false, message: 'Gagal menghapus data wisata' }); 
+  } finally { 
+    if (conn) conn.release(); 
+  }
 });
 
+// GET: Data Publik untuk Landing Page
 app.get('/api/public/wisata', async (req, res) => {
-  let conn; try { conn = await pool.getConnection(); const rows = await conn.query("SELECT * FROM wisata WHERE is_published = 1 ORDER BY id DESC"); res.status(200).json({ success: true, data: rows }); } catch (err) { res.status(500).json({ success: false, message: 'Gagal mengambil data' }); } finally { if (conn) conn.release(); }
+  let conn; 
+  try { 
+    conn = await pool.getConnection(); 
+    const rows = await conn.query("SELECT * FROM wisata WHERE is_published = 1 ORDER BY id DESC"); 
+    res.status(200).json({ success: true, data: rows }); 
+  } catch (err) { 
+    console.error('Error GET public wisata:', err);
+    res.status(500).json({ success: false, message: 'Gagal mengambil data' }); 
+  } finally { 
+    if (conn) conn.release(); 
+  }
 });
 
-// Endpoint GET detail wisata (Dimodifikasi agar me-return fasilitas sebagai Array JSON)
+// GET: Detail Wisata
 app.get('/api/wisata/:id', async (req, res) => {
   let conn;
   try {
@@ -427,7 +502,6 @@ app.get('/api/wisata/:id', async (req, res) => {
     if (rows.length > 0) {
       const data = rows[0];
       
-      // Parse fasilitas kembali menjadi JSON Array agar mudah di-looping di Vue (v-for)
       if (data.fasilitas) {
         try {
           data.fasilitas = typeof data.fasilitas === 'string' ? JSON.parse(data.fasilitas) : data.fasilitas;
@@ -443,7 +517,7 @@ app.get('/api/wisata/:id', async (req, res) => {
       res.status(404).json({ success: false, message: "Data tidak ditemukan di database" });
     }
   } catch (err) {
-    console.error("Error Detail API:", err);
+    console.error("Error Detail API Wisata:", err);
     res.status(500).json({ success: false, message: "Terjadi kesalahan server" });
   } finally {
     if (conn) conn.release();
