@@ -451,56 +451,174 @@ app.get('/api/wisata/:id', async (req, res) => {
 });
 
 // ==========================================
-// API MANAJEMEN UMKM (MENDUKUNG FILE UPLOAD)
+// API MANAJEMEN UMKM (MENDUKUNG MULTI-FILE UPLOAD & DETAIL LENGKAP)
 // ==========================================
 
+// Middleware upload untuk menerima maksimal 6 file gambar sekaligus
+const uploadUmkm = upload.fields([
+  { name: 'image', maxCount: 1 },        // Thumbnail utama
+  { name: 'gambar_hero', maxCount: 1 },  // Banner atas halaman detail
+  { name: 'galeri1', maxCount: 1 },
+  { name: 'galeri2', maxCount: 1 },
+  { name: 'galeri3', maxCount: 1 },
+  { name: 'galeri4', maxCount: 1 }
+]);
+
+// Helper kecil agar kode pemrosesan path gambar tetap rapi
+const getPath = (req, fieldName, fallback = '') => {
+  if (req.files && req.files[fieldName]) {
+    return '/uploads/' + req.files[fieldName][0].filename;
+  }
+  return req.body[fieldName] !== undefined ? req.body[fieldName] : fallback;
+};
+
+// 1. GET SEMUA UMKM (Untuk Admin)
 app.get('/api/umkm', verifyToken, async (req, res) => {
-    try { const rows = await pool.query('SELECT * FROM umkm ORDER BY id DESC'); res.json({ success: true, data: rows }); } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+    try { 
+        const rows = await pool.query('SELECT * FROM umkm ORDER BY id DESC'); 
+        res.json({ success: true, data: rows }); 
+    } catch (error) { 
+        res.status(500).json({ success: false, message: error.message }); 
+    }
 });
 
-app.post('/api/umkm', verifyToken, upload.single('image'), async (req, res) => {
+// 2. GET DETAIL UMKM BY ID (Untuk Admin / Detail Tanpa Filter Publish)
+app.get('/api/umkm/:id', async (req, res) => {
     try {
-        const { judul, pemilik, kategori, deskripsi, is_published } = req.body;
-        const imagePath = req.file ? '/uploads/' + req.file.filename : '';
+        const { id } = req.params;
+        const rows = await pool.query('SELECT * FROM umkm WHERE id = ?', [id]);
+        if (rows.length === 0) return res.status(404).json({ success: false, message: 'Data UMKM tidak ditemukan' });
+        res.json({ success: true, data: rows[0] });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// 3. POST TAMBAH UMKM BARU
+app.post('/api/umkm', verifyToken, uploadUmkm, async (req, res) => {
+    try {
+        const { 
+            judul, nama_umkm, pemilik, kategori, deskripsi_singkat, 
+            deskripsi, tentang, peta_url, no_wa, url_youtube, 
+            url_instagram, url_tiktok, is_published 
+        } = req.body;
+
+        const nama = nama_umkm || judul || '';
         const statusPublish = (is_published === 'true' || is_published === true || is_published == 1) ? 1 : 0;
 
-        const result = await pool.query(
-            'INSERT INTO umkm (judul, pemilik, kategori, deskripsi, image, is_published) VALUES (?, ?, ?, ?, ?, ?)',
-            [judul, pemilik, kategori, deskripsi, imagePath, statusPublish]
-        );
+        // Ambil path gambar (jika upload gambar_hero tidak ada, fallback ke image utama)
+        const imagePath = getPath(req, 'image', '');
+        const gambarHeroPath = getPath(req, 'gambar_hero', imagePath);
+        const g1 = getPath(req, 'galeri1', '');
+        const g2 = getPath(req, 'galeri2', '');
+        const g3 = getPath(req, 'galeri3', '');
+        const g4 = getPath(req, 'galeri4', '');
+
+        const query = `
+            INSERT INTO umkm (
+                nama_umkm, pemilik, kategori, deskripsi_singkat, deskripsi, tentang,
+                peta_url, no_wa, url_youtube, url_instagram, url_tiktok,
+                image, gambar_hero, galeri1, galeri2, galeri3, galeri4, is_published
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+
+        const values = [
+            nama, pemilik || '', kategori || '', deskripsi_singkat || '', deskripsi || '', tentang || '',
+            peta_url || '', no_wa || '', url_youtube || '', url_instagram || '', url_tiktok || '',
+            imagePath, gambarHeroPath, g1, g2, g3, g4, statusPublish
+        ];
+
+        const result = await pool.query(query, values);
         res.json({ success: true, message: 'UMKM berhasil ditambahkan', id: Number(result.insertId) });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
 });
 
-app.put('/api/umkm/:id', verifyToken, upload.single('image'), async (req, res) => {
+// 4. PUT UPDATE UMKM
+app.put('/api/umkm/:id', verifyToken, uploadUmkm, async (req, res) => {
     try {
         const { id } = req.params;
-        const { judul, pemilik, kategori, deskripsi } = req.body;
-        const imagePath = req.file ? '/uploads/' + req.file.filename : req.body.image;
+        const { 
+            judul, nama_umkm, pemilik, kategori, deskripsi_singkat, 
+            deskripsi, tentang, peta_url, no_wa, url_youtube, 
+            url_instagram, url_tiktok 
+        } = req.body;
 
-        await pool.query(
-            'UPDATE umkm SET judul=?, pemilik=?, kategori=?, deskripsi=?, image=? WHERE id=?', 
-            [judul, pemilik, kategori, deskripsi, imagePath, id]
-        );
+        const nama = nama_umkm || judul || '';
+
+        // Ambil path gambar baru jika diupload, atau pertahankan teks path lama dari body
+        const imagePath = getPath(req, 'image');
+        const gambarHeroPath = getPath(req, 'gambar_hero');
+        const g1 = getPath(req, 'galeri1');
+        const g2 = getPath(req, 'galeri2');
+        const g3 = getPath(req, 'galeri3');
+        const g4 = getPath(req, 'galeri4');
+
+        const query = `
+            UPDATE umkm SET 
+                nama_umkm = ?, pemilik = ?, kategori = ?, deskripsi_singkat = ?, deskripsi = ?, tentang = ?,
+                peta_url = ?, no_wa = ?, url_youtube = ?, url_instagram = ?, url_tiktok = ?,
+                image = ?, gambar_hero = ?, galeri1 = ?, galeri2 = ?, galeri3 = ?, galeri4 = ?
+            WHERE id = ?
+        `;
+
+        const values = [
+            nama, pemilik || '', kategori || '', deskripsi_singkat || '', deskripsi || '', tentang || '',
+            peta_url || '', no_wa || '', url_youtube || '', url_instagram || '', url_tiktok || '',
+            imagePath, gambarHeroPath, g1, g2, g3, g4, id
+        ];
+
+        await pool.query(query, values);
         res.json({ success: true, message: 'UMKM berhasil diupdate' });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
 });
 
+// 5. PATCH UPDATE STATUS PUBLISH
 app.patch('/api/umkm/:id/status', verifyToken, async (req, res) => {
-    try { const { id } = req.params; const { is_published } = req.body; await pool.query('UPDATE umkm SET is_published=? WHERE id=?', [is_published ? 1 : 0, id]); res.json({ success: true, message: 'Status publish diupdate' }); } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+    try { 
+        const { id } = req.params; 
+        const { is_published } = req.body; 
+        await pool.query('UPDATE umkm SET is_published=? WHERE id=?', [is_published ? 1 : 0, id]); 
+        res.json({ success: true, message: 'Status publish diupdate' }); 
+    } catch (error) { 
+        res.status(500).json({ success: false, message: error.message }); 
+    }
 });
+
+// 6. DELETE UMKM
 app.delete('/api/umkm/:id', verifyToken, async (req, res) => {
-    try { const { id } = req.params; await pool.query('DELETE FROM umkm WHERE id=?', [id]); res.json({ success: true, message: 'UMKM berhasil dihapus' }); } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+    try { 
+        const { id } = req.params; 
+        await pool.query('DELETE FROM umkm WHERE id=?', [id]); 
+        res.json({ success: true, message: 'UMKM berhasil dihapus' }); 
+    } catch (error) { 
+        res.status(500).json({ success: false, message: error.message }); 
+    }
 });
+
+// 7. GET PUBLIC LIST UMKM (Hanya yang Published)
 app.get('/api/public/umkm', async (req, res) => {
-    try { const rows = await pool.query('SELECT * FROM umkm WHERE is_published = 1 ORDER BY id DESC'); res.json({ success: true, data: rows }); } catch (error) { res.status(500).json({ success: false, message: 'Terjadi kesalahan pada server' }); }
+    try { 
+        const rows = await pool.query('SELECT * FROM umkm WHERE is_published = 1 ORDER BY id DESC'); 
+        res.json({ success: true, data: rows }); 
+    } catch (error) { 
+        res.status(500).json({ success: false, message: 'Terjadi kesalahan pada server' }); 
+    }
 });
+
+// 8. GET PUBLIC DETAIL UMKM (Hanya yang Published)
 app.get('/api/public/umkm/:id', async (req, res) => {
-    try { const { id } = req.params; const rows = await pool.query('SELECT * FROM umkm WHERE id = ? AND is_published = 1', [id]); if (rows.length === 0) return res.status(404).json({ success: false, message: 'Data tidak ditemukan' }); res.json({ success: true, data: rows[0] }); } catch (error) { res.status(500).json({ success: false, message: 'Terjadi kesalahan' }); }
+    try { 
+        const { id } = req.params; 
+        const rows = await pool.query('SELECT * FROM umkm WHERE id = ? AND is_published = 1', [id]); 
+        if (rows.length === 0) return res.status(404).json({ success: false, message: 'Data tidak ditemukan' }); 
+        res.json({ success: true, data: rows[0] }); 
+    } catch (error) { 
+        res.status(500).json({ success: false, message: 'Terjadi kesalahan' }); 
+    }
 });
 
 // ==========================================
