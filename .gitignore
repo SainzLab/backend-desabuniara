@@ -1,0 +1,9 @@
+# Kredensial & Environment Variables (SANGAT PENTING)
+.env
+.env.*
+!.env.example
+*.env
+
+# File Sistem macOS / OS
+.DS_Store
+Thumbs.db
