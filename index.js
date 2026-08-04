@@ -22,7 +22,7 @@ const pool = mariadb.createPool({
 // ==========================================
 // KONFIGURASI MULTER (PENYIMPANAN GAMBAR FISIK)
 // ==========================================
-// Pastikan folder public/uploads/ ada. Jika belum, buat secara otomatis.
+
 const uploadDir = path.join(__dirname, 'public', 'uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
@@ -30,10 +30,9 @@ if (!fs.existsSync(uploadDir)) {
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, uploadDir); // Folder tujuan penyimpanan gambar
+    cb(null, uploadDir);
   },
   filename: function (req, file, cb) {
-    // Generate nama file unik: timestamp + angka random + ekstensi asli
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
     cb(
       null,
@@ -42,9 +41,19 @@ const storage = multer.diskStorage({
   }
 });
 
+const fileFilter = (req, file, cb) => {
+  const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'application/pdf'];
+  if (allowedMimeTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Format file tidak didukung. Hanya ekstensi JPG, PNG, WEBP, atau PDF yang diizinkan.'), false);
+  }
+};
+
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 } // Batasi ukuran file max 5MB agar aman
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: fileFilter
 });
 
 // ==========================================
@@ -53,11 +62,16 @@ const upload = multer({
 const hapusFileFisik = (relativePath) => {
   if (!relativePath || relativePath.trim() === '') return;
 
-  // Ubah path dari /uploads/xxx.jpg menjadi letak absolut di direktori
   const cleanPath = relativePath.startsWith('/')
     ? relativePath.slice(1)
     : relativePath;
   const absolutePath = path.join(__dirname, 'public', cleanPath);
+  const allowedDir = path.join(__dirname, 'public', 'uploads');
+
+  if (!absolutePath.startsWith(allowedDir)) {
+    console.error(`[Bahaya] Upaya Path Traversal terdeteksi! Pembatalan hapus file: ${absolutePath}`);
+    return;
+  }
 
   fs.access(absolutePath, fs.constants.F_OK, (err) => {
     if (!err) {
@@ -82,7 +96,6 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// MENYAJIKAN FOLDER PUBLIC AGAR BISA DIAKSES FRONTEND/BROWSER
 app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
 
 const verifyToken = (req, res, next) => {
@@ -109,12 +122,12 @@ const verifyToken = (req, res, next) => {
 // ==========================================
 // 1. PUBLIC ROUTES (Tanpa Token)
 // ==========================================
-// A. Root URL
+
 app.get('/', (req, res) => {
   res.send('Halo! Ini adalah Backend API untuk Desa Buniara.');
 });
 
-// B. Login Admin
+
 app.post('/api/login', async (req, res) => {
   let conn;
   try {
@@ -168,7 +181,7 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// C. MENGAMBIL DATA KONTEN WEB (Bisa diakses publik untuk frontend web desa)
+
 app.get('/api/konten', async (req, res) => {
   let conn;
   try {
@@ -221,7 +234,6 @@ const uploadFields = upload.fields([
   { name: 'kantor_img', maxCount: 1 }
 ]);
 
-// MENGUPDATE DATA KONTEN WEB (Sudah termasuk Email & Logging)
 app.put('/api/konten', verifyToken, uploadFields, async (req, res) => {
   let conn;
   try {
@@ -342,7 +354,7 @@ app.put('/api/konten', verifyToken, uploadFields, async (req, res) => {
 // ==========================================
 // 3. ROUTE SOSIAL MEDIA (GET, POST, DELETE)
 // ==========================================
-// GET: Ambil semua data sosial media
+
 app.get('/api/sosmed', async (req, res) => {
   let conn;
   try {
@@ -360,7 +372,7 @@ app.get('/api/sosmed', async (req, res) => {
   }
 });
 
-// POST: Tambah link sosial media baru
+
 app.post('/api/sosmed', verifyToken, async (req, res) => {
   let conn;
   try {
@@ -390,7 +402,7 @@ app.post('/api/sosmed', verifyToken, async (req, res) => {
   }
 });
 
-// DELETE: Hapus link sosial media berdasarkan ID
+
 app.delete('/api/sosmed/:id', verifyToken, async (req, res) => {
   let conn;
   try {
@@ -533,15 +545,15 @@ app.delete('/api/pengguna/:id', verifyToken, async (req, res) => {
 // API UNTUK MANAJEMEN WISATA (DENGAN HAPUS FILE FISIK)
 // ==========================================
 const uploadWisata = upload.fields([
-  { name: 'image', maxCount: 1 }, // Foto Katalog Depan (Thumbnail)
-  { name: 'gambar_hero', maxCount: 1 }, // Gambar Banner Hero Detail
-  { name: 'galeri_1', maxCount: 1 }, // Galeri 1
-  { name: 'galeri_2', maxCount: 1 }, // Galeri 2
-  { name: 'galeri_3', maxCount: 1 }, // Galeri 3
-  { name: 'galeri_4', maxCount: 1 } // Galeri 4
+  { name: 'image', maxCount: 1 },
+  { name: 'gambar_hero', maxCount: 1 },
+  { name: 'galeri_1', maxCount: 1 },
+  { name: 'galeri_2', maxCount: 1 },
+  { name: 'galeri_3', maxCount: 1 },
+  { name: 'galeri_4', maxCount: 1 }
 ]);
 
-// GET: Semua data wisata (Untuk halaman admin)
+
 app.get('/api/wisata', verifyToken, async (req, res) => {
   let conn;
   try {
@@ -558,7 +570,7 @@ app.get('/api/wisata', verifyToken, async (req, res) => {
   }
 });
 
-// POST: Tambah Wisata Baru
+
 app.post('/api/wisata', verifyToken, uploadWisata, async (req, res) => {
   let conn;
   try {
@@ -644,7 +656,7 @@ app.post('/api/wisata', verifyToken, uploadWisata, async (req, res) => {
   }
 });
 
-// PUT: Edit Wisata (DILENGKAPI PEMBERSIHAN FOTO LAMA OTOMATIS)
+
 app.put('/api/wisata/:id', verifyToken, uploadWisata, async (req, res) => {
   let conn;
   try {
@@ -654,7 +666,6 @@ app.put('/api/wisata/:id', verifyToken, uploadWisata, async (req, res) => {
 
     conn = await pool.getConnection();
 
-    // 1. Ambil Data Lama
     const rows = await conn.query(
       'SELECT image, gambar_hero, galeri_1, galeri_2, galeri_3, galeri_4 FROM wisata WHERE id = ?',
       [id]
@@ -666,7 +677,6 @@ app.put('/api/wisata/:id', verifyToken, uploadWisata, async (req, res) => {
     }
     const dataLama = rows[0];
 
-    // 2. Resolve Path Gambar Baru atau Pertahankan yang Lama
     const imagePath =
       req.files && req.files['image']
         ? '/uploads/' + req.files['image'][0].filename
@@ -700,7 +710,6 @@ app.put('/api/wisata/:id', verifyToken, uploadWisata, async (req, res) => {
         : []
     );
 
-    // 3. Update Database
     await conn.query(
       'UPDATE wisata SET judul = ?, kategori = ?, deskripsi = ?, tentang = ?, fasilitas = ?, peta_url = ?, image = ?, gambar_hero = ?, galeri_1 = ?, galeri_2 = ?, galeri_3 = ?, galeri_4 = ? WHERE id = ?',
       [
@@ -720,7 +729,6 @@ app.put('/api/wisata/:id', verifyToken, uploadWisata, async (req, res) => {
       ]
     );
 
-    // 4. Bersihkan File Fisik (Jika diunggah file baru atau jika sengaja dihapus)
     const cekDanHapus = (fieldName, pathBaru, pathLama) => {
       const adaUnggahanBaru = req.files && req.files[fieldName];
       const userHapusManual = pathBaru === '' && pathLama && pathLama !== '';
@@ -750,7 +758,7 @@ app.put('/api/wisata/:id', verifyToken, uploadWisata, async (req, res) => {
   }
 });
 
-// PUT: Toggle Status Publish
+
 app.put('/api/wisata/:id/status', verifyToken, async (req, res) => {
   let conn;
   try {
@@ -774,14 +782,13 @@ app.put('/api/wisata/:id/status', verifyToken, async (req, res) => {
   }
 });
 
-// DELETE: Hapus Wisata (DILENGKAPI PEMBERSIHAN FOTO SECARA KESELURUHAN)
+
 app.delete('/api/wisata/:id', verifyToken, async (req, res) => {
   let conn;
   try {
     const { id } = req.params;
     conn = await pool.getConnection();
 
-    // 1. Ambil data wisata sebelum dihapus dari DB
     const rows = await conn.query(
       'SELECT image, gambar_hero, galeri_1, galeri_2, galeri_3, galeri_4 FROM wisata WHERE id = ?',
       [id]
@@ -793,10 +800,8 @@ app.delete('/api/wisata/:id', verifyToken, async (req, res) => {
     }
     const dataLama = rows[0];
 
-    // 2. Hapus Data dari Database
     await conn.query('DELETE FROM wisata WHERE id = ?', [id]);
 
-    // 3. Hapus Seluruh File Gambar Fisik
     const fieldGambar = [
       'image',
       'gambar_hero',
@@ -824,7 +829,7 @@ app.delete('/api/wisata/:id', verifyToken, async (req, res) => {
   }
 });
 
-// GET: Data Publik untuk Landing Page
+
 app.get('/api/public/wisata', async (req, res) => {
   let conn;
   try {
@@ -843,7 +848,7 @@ app.get('/api/public/wisata', async (req, res) => {
   }
 });
 
-// GET: Detail Wisata
+
 app.get('/api/wisata/:id', async (req, res) => {
   let conn;
   try {
@@ -883,8 +888,8 @@ app.get('/api/wisata/:id', async (req, res) => {
 // API MANAJEMEN UMKM (DENGAN HAPUS FILE FISIK)
 // ==========================================
 const uploadUmkm = upload.fields([
-  { name: 'image', maxCount: 1 }, // Thumbnail utama
-  { name: 'gambar_hero', maxCount: 1 }, // Banner atas halaman detail
+  { name: 'image', maxCount: 1 },
+  { name: 'gambar_hero', maxCount: 1 },
   { name: 'galeri1', maxCount: 1 },
   { name: 'galeri2', maxCount: 1 },
   { name: 'galeri3', maxCount: 1 },
@@ -898,7 +903,7 @@ const getPath = (req, fieldName, fallback = '') => {
   return req.body[fieldName] !== undefined ? req.body[fieldName] : fallback;
 };
 
-// 1. GET SEMUA UMKM (Untuk Admin)
+
 app.get('/api/umkm', verifyToken, async (req, res) => {
   try {
     const rows = await pool.query('SELECT * FROM umkm ORDER BY id DESC');
@@ -908,7 +913,7 @@ app.get('/api/umkm', verifyToken, async (req, res) => {
   }
 });
 
-// 2. GET DETAIL UMKM BY ID (Untuk Admin / Detail Tanpa Filter Publish)
+
 app.get('/api/umkm/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -923,7 +928,7 @@ app.get('/api/umkm/:id', async (req, res) => {
   }
 });
 
-// 3. POST TAMBAH UMKM BARU
+
 app.post('/api/umkm', verifyToken, uploadUmkm, async (req, res) => {
   try {
     const {
@@ -993,7 +998,7 @@ app.post('/api/umkm', verifyToken, uploadUmkm, async (req, res) => {
   }
 });
 
-// 4. PUT UPDATE UMKM (DILENGKAPI PEMBERSIHAN FOTO LAMA OTOMATIS)
+
 app.put('/api/umkm/:id', verifyToken, uploadUmkm, async (req, res) => {
   let conn;
   try {
@@ -1016,7 +1021,6 @@ app.put('/api/umkm/:id', verifyToken, uploadUmkm, async (req, res) => {
 
     conn = await pool.getConnection();
 
-    // 1. Ambil Data Lama
     const rows = await conn.query(
       'SELECT image, gambar_hero, galeri1, galeri2, galeri3, galeri4 FROM umkm WHERE id = ?',
       [id]
@@ -1028,7 +1032,6 @@ app.put('/api/umkm/:id', verifyToken, uploadUmkm, async (req, res) => {
     }
     const dataLama = rows[0];
 
-    // 2. Resolve Path Baru
     const imagePath = getPath(req, 'image');
     const gambarHeroPath = getPath(req, 'gambar_hero');
     const g1 = getPath(req, 'galeri1');
@@ -1068,7 +1071,6 @@ app.put('/api/umkm/:id', verifyToken, uploadUmkm, async (req, res) => {
 
     await conn.query(query, values);
 
-    // 3. Bersihkan File Fisik
     const cekDanHapus = (fieldName, pathBaru, pathLama) => {
       const adaUnggahanBaru = req.files && req.files[fieldName];
       const userHapusManual = pathBaru === '' && pathLama && pathLama !== '';
@@ -1093,7 +1095,7 @@ app.put('/api/umkm/:id', verifyToken, uploadUmkm, async (req, res) => {
   }
 });
 
-// 5. PATCH UPDATE STATUS PUBLISH
+
 app.patch('/api/umkm/:id/status', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -1108,14 +1110,13 @@ app.patch('/api/umkm/:id/status', verifyToken, async (req, res) => {
   }
 });
 
-// 6. DELETE UMKM (DILENGKAPI PEMBERSIHAN FOTO SECARA KESELURUHAN)
+
 app.delete('/api/umkm/:id', verifyToken, async (req, res) => {
   let conn;
   try {
     const { id } = req.params;
     conn = await pool.getConnection();
 
-    // 1. Ambil Data Lama
     const rows = await conn.query(
       'SELECT image, gambar_hero, galeri1, galeri2, galeri3, galeri4 FROM umkm WHERE id=?',
       [id]
@@ -1127,10 +1128,8 @@ app.delete('/api/umkm/:id', verifyToken, async (req, res) => {
     }
     const dataLama = rows[0];
 
-    // 2. Hapus Data
     await conn.query('DELETE FROM umkm WHERE id=?', [id]);
 
-    // 3. Hapus Gambar dari Disk
     const fieldGambar = [
       'image',
       'gambar_hero',
@@ -1153,7 +1152,7 @@ app.delete('/api/umkm/:id', verifyToken, async (req, res) => {
   }
 });
 
-// 7. GET PUBLIC LIST UMKM (Hanya yang Published)
+
 app.get('/api/public/umkm', async (req, res) => {
   try {
     const rows = await pool.query(
@@ -1167,7 +1166,7 @@ app.get('/api/public/umkm', async (req, res) => {
   }
 });
 
-// 8. GET PUBLIC DETAIL UMKM (Hanya yang Published)
+
 app.get('/api/public/umkm/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1346,6 +1345,18 @@ app.put('/api/pengaturan/wa', verifyToken, async (req, res) => {
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
+});
+
+// ==========================================
+// GLOBAL ERROR HANDLER (Khususnya untuk Multer)
+// ==========================================
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    return res.status(400).json({ success: false, message: `Gagal mengunggah file: ${err.message}` });
+  } else if (err) {
+    return res.status(400).json({ success: false, message: err.message });
+  }
+  next();
 });
 
 const HOST = process.env.HOST || '0.0.0.0';
